@@ -1,0 +1,359 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "[Child]Creates the front-end or \"master\" node for Jenkins.",
+  "Parameters": {
+    "Environment": {
+      "Type": "String",
+      "Default": "Saha"
+    },
+    "InstanceType": {
+      "Type": "String",
+      "Description": "The Jenkins front-end instance type",
+      "Default": "t2.small",
+      "AllowedValues": [
+        "t2.micro",
+        "t2.small",
+        "t2.medium",
+        "m4.large",
+        "m4.xlarge",
+        "m4.2xlarge",
+        "m4.4xlarge",
+        "m4.10xlarge",
+        "m4.16xlarge",
+        "m3.medium",
+        "m3.large",
+        "m3.xlarge",
+        "m3.2xlarge",
+        "c3.large",
+        "c3.xlarge",
+        "c3.2xlarge",
+        "c3.4xlarge",
+        "c3.8xlarge",
+        "c4.large",
+        "c4.xlarge",
+        "c4.2xlarge",
+        "c4.4xlarge",
+        "c4.8xlarge",
+        "r3.large",
+        "r3.xlarge",
+        "r3.2xlarge",
+        "r3.4xlarge",
+        "r3.8xlarge",
+        "i2.xlarge",
+        "i2.2xlarge",
+        "i2.4xlarge",
+        "i2.8xlarge",
+        "d2.xlarge",
+        "d2.2xlarge",
+        "d2.4xlarge",
+        "d2.8xlarge"
+      ],
+      "ConstraintDescription": "must be a valid EC2 instance type."
+    },
+    "MasterInstanceName": {
+      "Type": "String",
+      "Description": "Name to identify cluster's front-end instance",
+      "Default": "JenkinsMaster"
+    },
+    "BackupSchedule": {
+      "Type": "String",
+      "Description": "Cron expression for when to run a backup of Jenkins and SonarQube, e.g. 15 * * * *",
+      "Default": "15 * * * *"
+    },
+    "JenkinsMemory": {
+      "Type": "Number",
+      "Description": "RAM, in megabytes, to allocate for Jenkins.",
+      "Default": "1024",
+      "MinValue": "512"
+    },
+    "ConfigBucket": {
+      "Type": "String",
+      "Description": "URL of S3 bucket to pull configs from, e.g. s3://toy-jenkins-config/",
+      "AllowedPattern": "^s3:\/\/.*\/$",
+      "Default": "s3://Config-Synectiks/"
+    },
+    "KeyName": {
+      "Type": "AWS::EC2::KeyPair::KeyName",
+      "Description": "Name of an key that we download at the AWS Account created",
+      "Default": "synectiks"
+    },
+    "VpcCIDR":{
+
+      "Description": "Please enter the IP range (CIDR notation) for this VPC",
+      "Type": "String",
+      "Default": "10.10.0.0/16"
+    }
+
+  },
+  "Mappings": {
+    "AWSRegionToAMI": {
+      "us-east-1": {
+        "AMIID": "ami-6869aa05"
+      },
+      "us-west-1": {
+        "AMIID": "ami-31490d51"
+      },
+      "us-west-2": {
+        "AMIID": "ami-7172b611"
+      },
+      "eu-west-1": {
+        "AMIID": "ami-f9dd458a"
+      },
+      "eu-central-1": {
+        "AMIID": "ami-ea26ce85"
+      },
+      "ap-northeast-1": {
+        "AMIID": "ami-374db956"
+      },
+      "ap-southeast-1": {
+        "AMIID": "ami-a59b49c6"
+      },
+      "ap-southeast-2": {
+        "AMIID": "ami-dc361ebf"
+      }
+    }
+  },
+  "Resources": {
+    "VPC": {
+      "Type": "AWS::CloudFormation::Stack",
+      "Properties": {
+        "TemplateURL": {
+          "Fn::Sub": "https://s3.amazonaws.com/saha-jenkins/vpc.json"
+        },
+        "Parameters": {
+          "EnvironmentName": {
+            "Ref": "Environment"
+          },
+          "VpcCIDR": {
+            "Ref": "VpcCIDR"
+          },
+          "PublicSubnet1CIDR": "10.10.1.0/24"
+        }
+      }
+
+      },
+    "LoadBalancerSecurityGroup":{
+      "Type": "AWS::CloudFormation::Stack",
+      "Properties": {
+        "TemplateURL": {
+          "Fn::Sub": "https://s3.amazonaws.com/saha-jenkins/securitygroup.json"
+        },
+        "Parameters": {
+          "EnvironmentName": {
+            "Ref": "Environment"
+          },
+          "VPC": {
+            "Fn::GetAtt": "VPC.Outputs.VPC"
+          }
+        }
+      }
+
+
+    },
+    "JenkinsMasterRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/AmazonS3FullAccess",
+          "arn:aws:iam::aws:policy/AmazonEC2ContainerServiceFullAccess",
+          "arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role"
+        ],
+        "Policies": [
+          {
+            "PolicyName": "jenkins-ec2-plugin-requirements",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": {
+                "Effect": "Allow",
+                "Action": [
+                  "ec2:DescribeSpotInstanceRequests",
+                  "ec2:CancelSpotInstanceRequests",
+                  "ec2:GetConsoleOutput",
+                  "ec2:RequestSpotInstances",
+                  "ec2:RunInstances",
+                  "ec2:StartInstances",
+                  "ec2:StopInstances",
+                  "ec2:TerminateInstances",
+                  "ec2:CreateTags",
+                  "ec2:DeleteTags",
+                  "ec2:DescribeInstances",
+                  "ec2:DescribeKeyPairs",
+                  "ec2:DescribeRegions",
+                  "ec2:DescribeImages",
+                  "ec2:DescribeAvailabilityZones",
+                  "ec2:DescribeSecurityGroups",
+                  "ec2:DescribeSubnets"
+                ],
+                "Resource": [
+                  "*"
+                ]
+              }
+            }
+          },
+          {
+            "PolicyName": "stable-stage-groovy-script-requirements",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": {
+                "Effect": "Allow",
+                "Action": [
+                  "ecr:DescribeImages"
+                ],
+                "Resource": [
+                  "*"
+                ]
+              }
+            }
+          }
+        ],
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ec2.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        }
+      }
+    },
+    "JenkinsMasterInstanceProfile": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Properties": {
+        "Path": "/",
+        "Roles": [
+          {
+            "Ref": "JenkinsMasterRole"
+          }
+        ]
+      }
+    },
+    "AutoScalingGroup": {
+      "Type": "AWS::AutoScaling::AutoScalingGroup",
+      "Properties": {
+
+
+        "DesiredCapacity": "1",
+        "LaunchConfigurationName": {
+          "Ref": "LaunchConfiguration"
+        },
+        "MinSize": "1",
+        "MaxSize": "1",
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Ref": "MasterInstanceName"
+            },
+            "PropagateAtLaunch": "true"
+          }
+        ]
+      }
+    },
+    "LaunchConfiguration": {
+      "Type": "AWS::AutoScaling::LaunchConfiguration",
+      "Properties": {
+        "BlockDeviceMappings": [
+          {
+            "DeviceName": "/dev/xvda",
+            "Ebs": {
+              "VolumeSize": "30",
+              "VolumeType": "gp2"
+            }
+          }
+        ],
+        "IamInstanceProfile": {
+          "Ref": "JenkinsMasterInstanceProfile"
+        },
+        "ImageId": {
+          "Fn::FindInMap": [
+            "AWSRegionToAMI",
+            {
+              "Ref": "AWS::Region"
+            },
+            "AMIID"
+          ]
+        },
+        "InstanceMonitoring": "false",
+        "InstanceType": {
+          "Ref": "InstanceType"
+        },
+
+        "SecurityGroup": {
+          "Fn::ImportValue": {
+            "Fn::Join": [
+              "-",
+              [
+                {
+                  "Ref": "Environment"
+                },
+                "LoadBalancerSecurityGroup"
+              ]
+            ]
+          },
+          "UserData": {
+            "Fn::Base64": {
+              "Fn::Join": [
+                "",
+                [
+                  "#!/bin/bash -xe\n",
+                  "export CONFIG_BUCKET=",
+                  {
+                    "Ref": "ConfigBucket"
+                  },
+                  "\n",
+                  "export JENKINS_MEMORY=",
+                  {
+                    "Ref": "JenkinsMemory"
+                  },
+                  "\n",
+                  "export JENKINS_BACKUP_SCHEDULE=\"",
+                  {
+                    "Ref": "BackupSchedule"
+                  },
+                  "\"\n",
+                  "export AWS_REGION=\"",
+                  {
+                    "Ref": "AWS::Region"
+                  },
+                  "\"\n",
+                  "aws s3 cp ",
+                  {
+                    "Ref": "ConfigBucket"
+                  },
+                  "jenkins-master-bootstrap.sh .\n",
+                  "bash -xe jenkins-master-bootstrap.sh\n"
+                ]
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+
+  "Outputs":
+  {
+    "PublicSubnet": {
+
+        "Value":
+        {
+          "Fn::ImportValue": "vpcPublicSubnet1"
+        }
+      },
+
+    "LoadBalancerSecurityGroup": {
+      "Description": "The SG endpoint",
+      "Value": {
+        "Fn::ImportValue": "SGLoadBalancerSecurityGroup"
+      }
+    }
+
+  }
+}
+
+
+
